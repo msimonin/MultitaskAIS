@@ -2,18 +2,20 @@ import argparse
 import asyncio
 from collections import defaultdict
 import concurrent.futures
+import os
+import time
 
 import numpy as np
 from sesamelib.faust import MutatedDynamicMessage
 from sesamelib.multitask import Trajectory
 
 import faust
-import os
 
 
 APP_NAME = "multitaskais_stream"
 
 TRAJECTORIES = {}
+LAST_CHECK = time.time()
 
 ## Duong Code <DC>
 
@@ -122,7 +124,7 @@ def process_AIS_track(m_V):
 
     duration = m_V[-1,TIMESTAMP] - m_V[0,TIMESTAMP]
     if (len(m_V) < 20) or (duration < 4*3600):
-        print("Error!!!!!")
+        print("Error 1!!!!!")
         ## TODO: raise an error
 
     ## Removing 'moored' or 'at anchor' voyages
@@ -131,11 +133,11 @@ def process_AIS_track(m_V):
     d_L = float(len(m_V))
 
     if np.count_nonzero(m_V[:,NAV_STT] == 1)/d_L > 0.7   or np.count_nonzero(m_V[:,NAV_STT] == 5)/d_L > 0.7:
-        print("Error!!!!!")
+        print("Error 2!!!!!")
         ## TODO: raise an error
     sog_max = np.max(m_V[:,SOG])
     if sog_max < 1.0:
-        print("Error!!!!!")
+        print("Error 3!!!!!")
         ## TODO: raise an error
     if config.print_log:
         print("m_V's shape: ",m_V.shape)
@@ -162,7 +164,7 @@ def process_AIS_track(m_V):
         print("Removing 'low speed' tracks...")
     d_L = float(len(m_V))
     if np.count_nonzero(m_V[:,SOG] < 2)/d_L > 0.8:
-        print("Error!!!!!")
+        print("Error 4!!!!!")
         ## TODO: raise an error
     if config.print_log:
         print("m_V's shape: ",m_V.shape)
@@ -390,7 +392,7 @@ if __name__ == "__main__":
     parser.add_argument("--bootstrap_servers", "-b",
                         help="Kafka bootstrap servers",
                         action="append",
-                        default=lookup_env_array("BOOTSTRAP_SERVERS", ["localhost:9092"]))
+                        default=lookup_env_array("BOOTSTRAP_SERVERS", "localhost:9092"))
     parser.add_argument("--max_timespan", "-t",
                         help="Max time span for a trajectory",
                         default=lookup_env_int("MAX_TIMESPAN", 4 * 60 * 60))
@@ -413,30 +415,35 @@ if __name__ == "__main__":
 
     processes_pool = concurrent.futures.ProcessPoolExecutor(10)
 
-    def _handle(event):
-        mmsi, _ = event
-        trajectory = TRAJECTORIES[mmsi]
+    @app.timer(interval=5.0)
+    async def healthcheck():
+        global LAST_CHECK
+        now = time.time()
+        interval = now - LAST_CHECK
+        LAST_CHECK = now
+        drift =  interval - 5
+        print(f"HB:  drift of {drift} / #trajectories {len(list(TRAJECTORIES.keys()))}")
+
+    def to_numpy(trajectory):
         # reminder
         # LAT, LON, SOG, COG, HEADING, ROT, NAV_STT, TIMESTAMP, MMSI
-        l = [[p.x, p.y, p.sog, p.cog, p.true_heading, 0, 0, p.tagblock_timestamp, p.mmsi]
+        l = [[p.y, p.x, p.sog, p.cog, p.true_heading, 0, 0, p.tagblock_timestamp, p.mmsi]
              for p in trajectory._points]
-        l = np.asarray(l)
-        alert(l)
-
-
-    @app.agent(channel)
-    async def process(stream):
-        async for event in stream:
-            await loop.run_in_executor(processes_pool, _handle, event)
+        return np.asarray(l)
 
     @app.agent(topic)
-    async def mutate_all(msgs):
+    async def buffer(msgs):
         async for msg in msgs:
+            global TRAJECTORIES
             TRAJECTORIES.setdefault(msg.mmsi, Trajectory(MAX_TIMESPAN))
             current_traj = TRAJECTORIES[msg.mmsi]
             current_traj.add(msg)
-            if current_traj.timespan() > MAX_TIMESPAN:
-               await channel.send(value=(msg.mmsi, current_traj.timespan()))
+            if current_traj.exceed():
+                l = to_numpy(current_traj)
+                print(l)
+                await loop.run_in_executor(processes_pool, alert, l)
+                # NOTE(msimonin): overlaping window here if needed
+                current_traj.reset()
 
     app.finalize()
     worker = faust.Worker(app,
