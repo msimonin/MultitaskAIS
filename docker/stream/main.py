@@ -4,10 +4,12 @@ from collections import defaultdict
 import concurrent.futures
 import os
 import time
+import traceback
 
+import copy
 import numpy as np
-from sesamelib.faust import MutatedDynamicMessage
-from sesamelib.multitask import Trajectory
+from sesamelib.sesame_faust import MutatedDynamicMessage
+from sesamelib.multitask import Track, SpeedError, AreaError, MaxIntervalError
 
 import faust
 
@@ -78,8 +80,7 @@ def process_AIS_track(m_V):
     """
 
     ## Remove erroneous timestamps and erroneous speeds
-    if config.print_log:
-        print(" Remove erroneous timestamps and erroneous speeds...")
+    print(" Remove erroneous timestamps and erroneous speeds...")
     # Boundary
     lat_idx = np.logical_or((m_V[:,LAT] > LAT_MAX),
                             (m_V[:,LAT] < LAT_MIN))
@@ -95,14 +96,13 @@ def process_AIS_track(m_V):
     # Abnormal speeds
     abnormal_speed_idx = m_V[:,SOG] > SPEED_MAX
     m_V = m_V[np.logical_not(abnormal_speed_idx)]
+
     ## TODO: raise an error if len(m_V) == 0
-    if config.print_log:
-        print("m_V's shape: ",m_V.shape)
+    print("m_V's shape: ",m_V.shape)
 
 
     ## Cutting discontiguous voyages into contiguous ones
-    if config.print_log:
-        print("Cutting discontiguous voyages into contiguous ones...")
+    print("Cutting discontiguous voyages into contiguous ones...")
 
 
     # Intervals between successive messages in a track
@@ -113,14 +113,13 @@ def process_AIS_track(m_V):
         pass
     else:
         # NOTE(msimonin: WARNING: v is undefined)
-        m_V = np.split(v,idx+1)[0] # Use the first contiguous segment only
+        m_V = np.split(m_V,idx+1)[0] # Use the first contiguous segment only
         ## TODO: use all the contiguous segments
-    if config.print_log:
-        print("m_V's shape: ",m_V.shape)
+
+    print("m_V's shape: ",m_V.shape)
 
     ## Removing AIS track whose length is smaller than 20 or those last less than 4h
-    if config.print_log:
-        print("Removing AIS track whose length is smaller than 20 or those last less than 4h...")
+    print("Removing AIS track whose length is smaller than 20 or those last less than 4h...")
 
     duration = m_V[-1,TIMESTAMP] - m_V[0,TIMESTAMP]
     if (len(m_V) < 20) or (duration < 4*3600):
@@ -143,8 +142,7 @@ def process_AIS_track(m_V):
         print("m_V's shape: ",m_V.shape)
 
     ## Sampling, resolution = 5 min
-    if config.print_log:
-        print('Sampling...')
+    print('Sampling...')
 
     sampling_track = np.empty((0, 9))
     for t in range(int(m_V[0,TIMESTAMP]), int(m_V[-1,TIMESTAMP]), 300): # 5 min
@@ -156,8 +154,7 @@ def process_AIS_track(m_V):
             break
     if sampling_track is not None:
         m_V = sampling_track
-    if config.print_log:
-        print("m_V's shape: ",m_V.shape)
+    print("m_V's shape: ",m_V.shape)
 
     ## Removing 'low speed' tracks
     if config.print_log:
@@ -166,28 +163,23 @@ def process_AIS_track(m_V):
     if np.count_nonzero(m_V[:,SOG] < 2)/d_L > 0.8:
         print("Error 4!!!!!")
         ## TODO: raise an error
-    if config.print_log:
-        print("m_V's shape: ",m_V.shape)
+    print("m_V's shape: ",m_V.shape)
 
-    if config.print_log:
-        print('Re-Splitting...')
+    print('Re-Splitting...')
 
     ## Split AIS track into small tracks whose duration <= 1 day
     idx = np.arange(0, len(m_V), 12*24)[1:]
     m_V = np.split(m_V,idx)[0]
-    if config.print_log:
-        print("m_V's shape: ",m_V.shape)
+    print("m_V's shape: ",m_V.shape)
 
     ## Normalisation
-    if config.print_log:
-        print('Normalisation...')
+    print('Normalisation...')
     m_V[:,LAT] = (m_V[:,LAT] - LAT_MIN)/(LAT_MAX-LAT_MIN)
     m_V[:,LON] = (m_V[:,LON] - LON_MIN)/(LON_MAX-LON_MIN)
     m_V[:,SOG][m_V[:,SOG] > SPEED_MAX] = SPEED_MAX
     m_V[:,SOG] = m_V[:,SOG]/SPEED_MAX
     m_V[:,COG] = m_V[:,COG]/360.0
-    if config.print_log:
-        print("m_V's shape: ",m_V.shape)
+    print("m_V's shape: ",m_V.shape)
 
     return m_V
 
@@ -311,7 +303,8 @@ def alert(trajectory):
         trajectory is composed of 9 columns
     """
     print(f"trajectory.shape: {trajectory.shape}")
-    l_V = [process_AIS_track(trajectory)]
+    preprocessed_trajectory = process_AIS_track(copy.deepcopy(trajectory))
+    l_V = [preprocessed_trajectory]
 
     ## Reset the computational graph.
     tf.reset_default_graph()
@@ -382,8 +375,11 @@ def alert(trajectory):
         else:
             pass
 
-    print("Number of abnormal tracks: ",len(l_abnormal_track))
+    print("Number of abnormal tracks: ", len(l_abnormal_track))
     print(l_abnormal_track)
+    if len(l_abnormal_track) > 0:
+        return (trajectory, preprocessed_trajectory)
+    return False
 ## </DC>
 
 
@@ -431,19 +427,37 @@ if __name__ == "__main__":
              for p in trajectory._points]
         return np.asarray(l)
 
+
+    def new_traj():
+        return Track(
+                    min_timespan=2*MAX_TIMESPAN,
+                    lat_min_max=(LAT_MIN,LAT_MAX),
+                    lon_min_max=(LON_MIN, LON_MAX),
+                    max_speed=SPEED_MAX,
+                    max_interval=config.interval_max
+                )
+
+
     @app.agent(topic)
     async def buffer(msgs):
         async for msg in msgs:
             global TRAJECTORIES
-            TRAJECTORIES.setdefault(msg.mmsi, Trajectory(MAX_TIMESPAN))
-            current_traj = TRAJECTORIES[msg.mmsi]
-            current_traj.add(msg)
-            if current_traj.exceed():
-                l = to_numpy(current_traj)
-                print(l)
-                await loop.run_in_executor(processes_pool, alert, l)
-                # NOTE(msimonin): overlaping window here if needed
-                current_traj.reset()
+            TRAJECTORIES.setdefault(msg.mmsi, new_traj())
+            try:
+                TRAJECTORIES[msg.mmsi].add(msg)
+                if TRAJECTORIES[msg.mmsi].exceed():
+                    l = to_numpy(TRAJECTORIES[msg.mmsi])
+                    abnormal = await loop.run_in_executor(processes_pool, alert, l)
+                    del TRAJECTORIES[msg.mmsi]
+            except MaxIntervalError:
+                print(f"Creating a new track for {msg.mmsi}")
+                del TRAJECTORIES[msg.mmsi]
+            except Exception as e:
+                print(e)
+                traceback.print_exc()
+            else:
+                pass
+
 
     app.finalize()
     worker = faust.Worker(app,
