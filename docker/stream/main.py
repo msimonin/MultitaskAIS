@@ -1,17 +1,17 @@
 import argparse
 import asyncio
 from collections import defaultdict
+import copy
 import concurrent.futures
 import os
 import time
 import traceback
 
-import copy
+import faust
 import numpy as np
 from sesamelib.sesame_faust import MutatedDynamicMessage
 from sesamelib.multitask import Track, SpeedError, AreaError, MaxIntervalError
-
-import faust
+import sesamelib.utils as cli_utils
 
 
 APP_NAME = "multitaskais_stream"
@@ -47,22 +47,6 @@ LON_BIN = int(LON_RANGE/LON_RESO)
 DEFAULT_PARALLELISM = 12
 num_parallel_calls=DEFAULT_PARALLELISM
 ## </DC>
-
-def lookup_env(name, default=None):
-    return os.environ.get(name, default)
-
-
-def lookup_env_array(name, default=None):
-    lookup = lookup_env(name, default=default)
-    if not lookup:
-        return []
-    else:
-        return lookup.split(",")
-
-
-def lookup_env_int(name, default=None):
-    lookup = lookup_env(name, default=default)
-    return int(lookup)
 
 ## <DC>
 def process_AIS_track(m_V):
@@ -383,18 +367,21 @@ def alert(trajectory):
 ## </DC>
 
 
+MIN_TIMESPAN = 4 * 60 * 60
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Alert if a ship enters one of the indexed EEZs")
     parser.add_argument("--bootstrap_servers", "-b",
                         help="Kafka bootstrap servers",
                         action="append",
-                        default=lookup_env_array("BOOTSTRAP_SERVERS", "localhost:9092"))
-    parser.add_argument("--max_timespan", "-t",
+                        default=cli_utils.lookup_env_array("BOOTSTRAP_SERVERS", "localhost:9092"))
+    parser.add_argument("--topic", "-t",
+                        help="Kafka topic to get ais messages from",
+                        default=cli_utils.lookup_env("TOPIC", "ais.dynamic"))
+    parser.add_argument("--min_timespan", "-m",
                         help="Max time span for a trajectory",
-                        default=lookup_env_int("MAX_TIMESPAN", 4 * 60 * 60))
+                        default=cli_utils.lookup_env_int("MIN_TIMESPAN", MIN_TIMESPAN))
     args = parser.parse_args()
-
-    MAX_TIMESPAN = args.max_timespan
 
     loop = asyncio.get_event_loop()
 
@@ -404,7 +391,7 @@ if __name__ == "__main__":
         broker="kafka://{}".format(",".join(args.bootstrap_servers))
     )
 
-    topic = app.topic("ais.dynamic", key_type=str, value_type=MutatedDynamicMessage)
+    topic = app.topic(args.topic, key_type=str, value_type=MutatedDynamicMessage)
     out_topic = app.topic(APP_NAME)
 
     channel = app.channel(value_type=str)
@@ -420,17 +407,10 @@ if __name__ == "__main__":
         drift =  interval - 5
         print(f"HB:  drift of {drift} / #trajectories {len(list(TRAJECTORIES.keys()))}")
 
-    def to_numpy(trajectory):
-        # reminder
-        # LAT, LON, SOG, COG, HEADING, ROT, NAV_STT, TIMESTAMP, MMSI
-        l = [[p.y, p.x, p.sog, p.cog, p.true_heading, 0, 0, p.tagblock_timestamp, p.mmsi]
-             for p in trajectory._points]
-        return np.asarray(l)
-
 
     def new_traj():
         return Track(
-                    min_timespan=2*MAX_TIMESPAN,
+                    min_timespan=2*args.min_timespan,
                     lat_min_max=(LAT_MIN,LAT_MAX),
                     lon_min_max=(LON_MIN, LON_MAX),
                     max_speed=SPEED_MAX,
@@ -446,7 +426,7 @@ if __name__ == "__main__":
             try:
                 TRAJECTORIES[msg.mmsi].add(msg)
                 if TRAJECTORIES[msg.mmsi].exceed():
-                    l = to_numpy(TRAJECTORIES[msg.mmsi])
+                    l = TRAJECTORIES[msg.mmsi].to_numpy()
                     abnormal = await loop.run_in_executor(processes_pool, alert, l)
                     del TRAJECTORIES[msg.mmsi]
             except MaxIntervalError:
@@ -467,4 +447,3 @@ if __name__ == "__main__":
 
     # some cleaning
     processes_pool.shutdown()
-
