@@ -313,20 +313,9 @@ def build_and_load_GeoTrackNet(l_V):
     return sess, inputs, targets, lengths, mmsis, mean, log_weights, ll_per_t
 
 
-## MAIN
-#======================================
-
-if __name__ == '__main__':
-
-    ## Load AIS tracks
-    m_V1 = np.load(config.contrario_data_path)
-    m_V2 = np.load("AIS_track2.npy")
-
+def alert(tracks):
     ## Process AIS tracks
-    l_V = list([m_V1,m_V2])
-    for idx in range(len(l_V)):
-        l_V[idx] = process_AIS_track(l_V[idx])
-
+    l_V = [process_AIS_track(t) for t in tracks]
 
     ## Reset the computational graph.
     tf.Graph().as_default()
@@ -396,7 +385,21 @@ if __name__ == '__main__':
         else:
             pass
 
+    return l_abnormal_track
+
+
+
+## MAIN
+#======================================
+
+if __name__ == '__main__':
+
+    ## Load AIS tracks
+    m_V1 = np.load(config.contrario_data_path)
+    m_V2 = np.load("AIS_track2.npy")
+
+    # anomaly detection here
+    l_abnormal_track = alert([m_V1, m_V2])
+
     print("Number of abnormal tracks: ",len(l_abnormal_track))
     print(l_abnormal_track)
-
-
