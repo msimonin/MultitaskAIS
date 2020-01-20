@@ -1,0 +1,53 @@
+* MultitaskAIS online
+
+Goal: Evaluate how MultitaskAIS can be used to detect abnormal tracks in a
+      stream of messages
+
+** Runtimes
+
+Runtimes are available through some docker images: 
+
+- ~base~ image: contains the multitaskAIS dependencies (using Conda) and the MultitaskAIS 
+  source code.
+
+- ~stream~ image: contains the code of an operator detecting "abnormal" 
+  tracks in an AIS messages. At runtime this assumes that AIS message are
+  ingested through Kafka and available on a topic keyed by mmsi.
+
+- ~tracks~ image: contains the code that build tracks from a set of ais messages.
+  This works offline with an already known set of messages. Those tracks can be
+  used as input to benchmark the detection function.
+
+
+*** Build
+
+To build the images you need to set the ~NAMESPACE~ and ~TARGET_REF~
+environment variables. You need to use the MultitaskAIS root directory as the
+context directory of the build.
+
+
+- Get the code:
+#+BEGIN_SRC bash
+# one time
+git clone https://github.com/msimonin/MultitaskAIS.git -b online_detection
+cd MultitaskAIS
+#+END_SRC
+
+- ~base~:
+#+BEGIN_SRC bash
+# Image build example
+NAMESPACE=sesame TARGET_REF=1.0.0 docker build -f docker/base/Dockerfile .
+#+END_SRC
+
+- ~stream~:
+#+BEGIN_SRC bash
+# Image build example
+NAMESPACE=sesame TARGET_REF=1.0.0 docker build -f docker/stream/Dockerfile .
+#+END_SRC
+
+- ~tracks~:
+#+BEGIN_SRC bash
+# Image build example
+NAMESPACE=sesame TARGET_REF=1.0.0 docker build -f docker/tracks/Dockerfile .
+#+END_SRC
+
