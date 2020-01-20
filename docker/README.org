@@ -33,21 +33,42 @@ git clone https://github.com/msimonin/MultitaskAIS.git -b online_detection
 cd MultitaskAIS
 #+END_SRC
 
-- ~base~:
+- Setup docker on g5k
 #+BEGIN_SRC bash
-# Image build example
-NAMESPACE=sesame TARGET_REF=1.0.0 docker build -f docker/base/Dockerfile .
+# one time on g5k
+/grid5000/code/bin/g5k-setup-docker
+# get more space for the docker images
+sudo-g5k sed -E -i "s/ExecStart=\/usr\/bin\/dockerd (.*)/ExecStart=\/usr\/bin\/dockerd --data-root=\/tmp\/docker \\1/" /lib/systemd/system/docker.service
+s
+sudo-g5k service docker restart
+which docker
+ls /srv/storage/sesame@storage1.rennes
 #+END_SRC
 
-- ~stream~:
+- Build the images 
 #+BEGIN_SRC bash
 # Image build example
-NAMESPACE=sesame TARGET_REF=1.0.0 docker build -f docker/stream/Dockerfile .
+export NAMESPACE=sesame
+export TARGET_REF=1.0.0
+# base
+docker build -f docker/base/Dockerfile . -t $NAMESPACE/multitaskais_base:$TARGET_REF
+# stream
+docker build --build-arg NAMESPACE=$NAMESPACE --build-arg TARGET_REF=$TARGET_REF -f docker/stream/Dockerfile . -t $NAMESPACE/multitaskais_stream:$TARGET_REF
+# tracks
+docker build --build-arg NAMESPACE=$NAMESPACE --build-arg TARGET_REF=$TARGET_REF -f docker/tracks/Dockerfile . -t $NAMESPACE/multitaskais_tracks:$TARGET_REF
 #+END_SRC
 
-- ~tracks~:
+*** Evaluation
+
+**** Build all the tracks
+
 #+BEGIN_SRC bash
-# Image build example
-NAMESPACE=sesame TARGET_REF=1.0.0 docker build -f docker/tracks/Dockerfile .
+# example for 2011
+docker run -ti \ 
+    -v /srv/storage/sesame\@storage1.rennes:/data \
+    -v /tmp/multitaskais_tracks/2011:/tmp/trajectories \
+    -ti sesame/multitaskais_tracks:1.0.0 \
+    --master "local[32]" main.py /data/sesame/ais_britany/raw/2011/*/*/*.cdv brittany
 #+END_SRC
 
+**** TODO Benchmark the alert function

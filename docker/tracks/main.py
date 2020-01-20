@@ -21,6 +21,7 @@ MIN_TIMESPAN = 4 * 60 * 60
 
 from sesamelib.multitask import Track, MaxIntervalError
 import sesamelib.utils as cli_utils
+import sesamelib.ais_utils as ais_utils
 from sesamelib.sesame_faust import BaseDynamicMessage
 
 OUTPUT_DIR = "/tmp/trajectories"
@@ -34,32 +35,7 @@ KEYS=["mmsi", "sog","cog", "x", "y", "tagblock_timestamp", "true_heading"]
 
 def decode(ais_type, e):
     """Decode the message according the the ais_type."""
-    def _decode(raw):
-        import ais.stream
-        f = io.StringIO(raw)
-        msg = None
-        for msg in ais.stream.decode(f):
-            pass
-        f.close()
-        return msg
-    msg = {}
-    try:
-        if ais_type == GLOBAL:
-            msg = _decode(e)
-        elif ais_type == BRITTANY:
-            day, hour, _e = e.split(" ")
-            msg = _decode(_e)
-            if msg:
-                tagblock_timestamp = time.mktime(time.strptime("%s %s" % (day, hour), "%Y/%m/%d %H:%M:%S"))
-                msg.update({"tagblock_timestamp": tagblock_timestamp})
-        else:
-            raise Exception("ais_type not recognized")
-    except:
-        print(e)
-        traceback.print_exc()
-        with open("decoding_errors.txt", "w") as f:
-            f.write(e)
-    return msg
+    return ais_utils.decode(e, ais_type=ais_type)
 
 
 def extractKeys(msg):
@@ -103,7 +79,8 @@ def dumpFiles(output_dir, mmsi_track):
     Side effect ahead!"""
     mmsi, track = mmsi_track
     path = os.path.join(output_dir, "%s.txt" % mmsi)
-    np.save(path, track.to_numpy())
+    if track.length() > 0:
+       np.save(path, track.to_numpy())
     return mmsi_track
 
 if __name__ == "__main__":

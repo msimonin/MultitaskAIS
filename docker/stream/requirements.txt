@@ -1,2 +1,2 @@
 faust ~= 1.10.0
-sesamelib >= 0.0.31
+sesamelib >= 0.0.32
