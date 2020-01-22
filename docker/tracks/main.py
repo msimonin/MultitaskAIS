@@ -65,6 +65,12 @@ def buildTracks(lat_min_max, lon_min_max, min_timespan, interval_max, max_speed,
             print(f"Creating a new track for {mmsi}")
             track = new_traj()
             split_tracks.append(("%s-%s" % (mmsi, len(split_tracks)), track))
+            # reinsert this message
+            try:
+                track.add(BaseDynamicMessage(**msg))
+            except Exception as e:
+                print(e)
+                traceback.print_exc()
         except Exception as e:
             print(e)
             traceback.print_exc()

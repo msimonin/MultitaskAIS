@@ -40,6 +40,7 @@ cd MultitaskAIS
 # get more space for the docker images
 sudo-g5k sed -E -i "s/ExecStart=\/usr\/bin\/dockerd (.*)/ExecStart=\/usr\/bin\/dockerd --data-root=\/tmp\/docker \\1/" /lib/systemd/system/docker.service
 s
+sudo-g5k systemctl daemon-reload
 sudo-g5k service docker restart
 which docker
 ls /srv/storage/sesame@storage1.rennes
@@ -62,13 +63,137 @@ docker build --build-arg NAMESPACE=$NAMESPACE --build-arg TARGET_REF=$TARGET_REF
 
 **** Build all the tracks
 
-#+BEGIN_SRC bash
-# example for 2011
-docker run -ti \ 
-    -v /srv/storage/sesame\@storage1.rennes:/data \
-    -v /tmp/multitaskais_tracks/2011:/tmp/trajectories \
-    -ti sesame/multitaskais_tracks:1.0.0 \
-    --master "local[32]" main.py /data/sesame/ais_britany/raw/2011/*/*/*.cdv brittany
+For each year this creates all the tracks on a dedicated nodes. 
+Depending on the year it took approx 32 CPU x 6 hours. 
+
+#+BEGIN_SRC python :tangle build_tracks.py
+from enoslib.api import play_on, __default_python3__, __docker__
+from enoslib.infra.enos_g5k.provider import G5k
+from enoslib.infra.enos_g5k.configuration import Configuration, NetworkConfiguration
+
+import logging
+import os
+
+logging.basicConfig(level=logging.INFO)
+
+
+YEARS = [f"201{i}" for i in range(1, 9)]
+
+# claim the resources
+network = NetworkConfiguration(
+    id="n1",
+    type="prod",
+    roles=["my_network"],
+    site="rennes"
+)
+conf = (
+    Configuration
+    .from_settings(job_name="build_tracks",
+                   job_type="allow_classic_ssh",
+                   walltime="11:00:00")
+    .add_network_conf(network)
+    .add_machine(
+        roles=["control"],
+        cluster="paravance",
+        nodes=len(YEARS),
+        primary_network=network
+    )
+    .finalize()
+)
+
+provider = G5k(conf)
+roles, _ = provider.init()
+print(roles)
+
+with play_on(roles=roles, priors=[__default_python3__, __docker__]) as p:
+    p.lineinfile(
+        path="/lib/systemd/system/docker.service",
+        regexp="ExecStart=/usr/bin/dockerd (.*)",
+        # NOTE: Yaml requires escaping backslashes in double quotes but not in single quotes
+        line="ExecStart=/usr/bin/dockerd --data-root=/tmp/docker \\1",
+        backrefs="yes"
+    )
+    p.systemd(
+        name="docker",
+        state="restarted",
+        daemon_reload="yes"
+    )
+    p.apt(name="python3-pip", state="present")
+    p.pip(name="docker", state="present")
+    p.shell("ls /srv/storage/sesame@storage1.rennes")
+
+for host, year in zip(roles["control"], YEARS):
+    # inject host level vars
+    host.extra.update(year=year)
+
+with play_on(roles=roles) as p:
+    # copy locally the source dir
+    p.shell("rsync -avz /srv/storage/sesame@storage1.rennes/sesame/ais_britany/raw/{{ year }} /tmp/")
+    # build tracks for the given year
+    p.docker_container(
+        name="multitaskais_tracks",
+        image="registry.gitlab.inria.fr/sesame/platform/multitaskais_tracks:1.0.14",
+        state="started",
+        volumes=[
+            "/tmp/{{ year }}:/data",
+            "/tmp/result/{{ year }}:/tmp/trajectories"
+        ],
+        command="--master 'local[{{ ansible_processor_vcpus }}]' main.py /data/*/*/*.cdv brittany"
+    )
+#+END_SRC
+
+**** Save the tracks
+
+
+#+BEGIN_SRC python :tangle save_tracks.py
+# TODO merge with build_tracks
+from enoslib.api import play_on, __default_python3__, __docker__
+from enoslib.infra.enos_g5k.provider import G5k
+from enoslib.infra.enos_g5k.configuration import Configuration, NetworkConfiguration
+
+import logging
+import os
+
+logging.basicConfig(level=logging.INFO)
+
+
+YEARS = [f"201{i}" for i in range(1, 9)]
+
+# claim the resources
+network = NetworkConfiguration(
+    id="n1",
+    type="prod",
+    roles=["my_network"],
+    site="rennes"
+)
+conf = (
+    Configuration
+    .from_settings(job_name="build_tracks",
+                   job_type="allow_classic_ssh",
+                   walltime="11:00:00")
+    .add_network_conf(network)
+    .add_machine(
+        roles=["control"],
+        cluster="paravance",
+        nodes=len(YEARS),
+        primary_network=network
+    )
+    .finalize()
+)
+
+provider = G5k(conf)
+roles, _ = provider.init()
+print(roles)
+
+for host, year in zip(roles["control"], YEARS):
+    # inject host level vars
+    host.extra.update(year=year)
+
+with play_on(roles=roles) as p:
+    # copy locally the source dir
+    target = "/srv/storage/sesame@storage1.rennes/sesame/generated/multitaskais"
+    p.shell(f"mkdir -p {target}")
+    p.shell("rsync -avz /tmp/result/{{ year }} %s" % target)
 #+END_SRC
 
 **** TODO Benchmark the alert function
