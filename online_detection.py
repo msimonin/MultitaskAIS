@@ -55,6 +55,18 @@ num_parallel_calls=DEFAULT_PARALLELISM
 ## DEFINING FUNCTIONS
 #======================================
 
+class NotEnoughPointError(Exception):
+    pass
+
+class TimespanError(Exception):
+    pass
+
+class NotMoving(Exception):
+    pass
+
+class LowSpeed(Exception):
+    pass
+
 def process_AIS_track(m_V):
     """
     Preprocess the AIS track.
@@ -68,7 +80,29 @@ def process_AIS_track(m_V):
         - Return:
         ## TODO: output's format.
     """
+    def check_length(n):
+        if len(n) < 20:
+            raise NotEnoughPointError
 
+    def check_timespan(n):
+        duration = n[-1,TIMESTAMP] - n[0,TIMESTAMP]
+        if (duration < 4*3600):
+            raise TimespanError
+
+    def check_moored_anchored(n):
+        d_L = float(len(m_V))
+        if np.count_nonzero(n[:,NAV_STT] == 1)/d_L > 0.7   or np.count_nonzero(n[:,NAV_STT] == 5)/d_L > 0.7:
+            raise NotMoving
+        sog_max = np.max(m_V[:,SOG])
+        if sog_max < 1.0:
+            raise NotMoving
+
+    def check_lowspeed(n):
+        d_L = float(len(m_V))
+        if np.count_nonzero(m_V[:,SOG] < 2)/d_L > 0.8:
+            raise LowSpeed
+
+    check_length(m_V)
     ## Remove erroneous timestamps and erroneous speeds
     if config.print_log:
         print(" Remove erroneous timestamps and erroneous speeds...")
@@ -87,7 +121,8 @@ def process_AIS_track(m_V):
     # Abnormal speeds
     abnormal_speed_idx = m_V[:,SOG] > SPEED_MAX
     m_V = m_V[np.logical_not(abnormal_speed_idx)]
-    ## TODO: raise an error if len(m_V) == 0
+    # NOTE(msimonin): Initially Duong checked if there was any point left
+    check_length(m_V)
     if config.print_log:
         print("m_V's shape: ",m_V.shape)
 
@@ -104,8 +139,11 @@ def process_AIS_track(m_V):
     if len(idx) == 0:
         pass
     else:
-        m_V = np.split(v,idx+1)[0] # Use the first contiguous segment only
+        m_V = np.split(m_V,idx+1)[0] # Use the first contiguous segment only
         ## TODO: use all the contiguous segments
+        ## NOTE(msimonin) this should be to hard
+
+    check_length(m_V)
     if config.print_log:
         print("m_V's shape: ",m_V.shape)
 
@@ -113,23 +151,14 @@ def process_AIS_track(m_V):
     if config.print_log:
         print("Removing AIS track whose length is smaller than 20 or those last less than 4h...")
 
-    duration = m_V[-1,TIMESTAMP] - m_V[0,TIMESTAMP]
-    if (len(m_V) < 20) or (duration < 4*3600):
-        print("Error!!!!!")
-        ## TODO: raise an error
+    check_length(m_V)
+    check_timespan(m_V)
 
     ## Removing 'moored' or 'at anchor' voyages
     print("Removing 'moored' or 'at anchor' voyages...")
 
-    d_L = float(len(m_V))
+    check_moored_anchored(m_V)
 
-    if np.count_nonzero(m_V[:,NAV_STT] == 1)/d_L > 0.7   or np.count_nonzero(m_V[:,NAV_STT] == 5)/d_L > 0.7:
-        print("Error!!!!!")
-        ## TODO: raise an error
-    sog_max = np.max(m_V[:,SOG])
-    if sog_max < 1.0:
-        print("Error!!!!!")
-        ## TODO: raise an error
     if config.print_log:
         print("m_V's shape: ",m_V.shape)
 
@@ -153,10 +182,8 @@ def process_AIS_track(m_V):
     ## Removing 'low speed' tracks
     if config.print_log:
         print("Removing 'low speed' tracks...")
-    d_L = float(len(m_V))
-    if np.count_nonzero(m_V[:,SOG] < 2)/d_L > 0.8:
-        print("Error!!!!!")
-        ## TODO: raise an error
+
+    check_lowspeed(m_V)
     if config.print_log:
         print("m_V's shape: ",m_V.shape)
 
@@ -166,6 +193,10 @@ def process_AIS_track(m_V):
     ## Split AIS track into small tracks whose duration <= 1 day
     idx = np.arange(0, len(m_V), 12*24)[1:]
     m_V = np.split(m_V,idx)[0]
+
+    # TODO(msimonin) use all tracks
+    if len(m_V) == 0:
+        raise Exception()
     if config.print_log:
         print("m_V's shape: ",m_V.shape)
 
@@ -318,6 +349,7 @@ def alert(tracks):
     l_V = [process_AIS_track(t) for t in tracks]
 
     ## Reset the computational graph.
+    tf.reset_default_graph()
     tf.Graph().as_default()
     global_step = tf.train.get_or_create_global_step()
 

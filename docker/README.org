@@ -69,6 +69,7 @@ Depending on the year it took approx 32 CPU x 6 hours.
 #+BEGIN_SRC python :tangle build_tracks.py
 from enoslib.api import play_on, __default_python3__, __docker__
 from enoslib.infra.enos_g5k.provider import G5k
+from enoslib.infra.enos_g5k.g5k_api_utils import get_cluster_site
 from enoslib.infra.enos_g5k.configuration import Configuration, NetworkConfiguration
 
 import logging
@@ -77,6 +78,9 @@ import os
 logging.basicConfig(level=logging.INFO)
 
 
+CLUSTER = "paravance"
+SITE = get_cluster_site(CLUSTER)
+
 YEARS = [f"201{i}" for i in range(1, 9)]
 
 # claim the resources
@@ -84,7 +88,7 @@ network = NetworkConfiguration(
     id="n1",
     type="prod",
     roles=["my_network"],
-    site="rennes"
+    site=SITE
 )
 conf = (
     Configuration
@@ -94,7 +98,7 @@ conf = (
     .add_network_conf(network)
     .add_machine(
         roles=["control"],
-        cluster="paravance",
+        cluster=CLUSTER,
         nodes=len(YEARS),
         primary_network=network
     )
@@ -138,7 +142,9 @@ with play_on(roles=roles) as p:
             "/tmp/{{ year }}:/data",
             "/tmp/result/{{ year }}:/tmp/trajectories"
         ],
-        command="--master 'local[{{ ansible_processor_vcpus }}]' main.py /data/*/*/*.cdv brittany"
+        command="--master 'local[{{ ansible_processor_vcpus }}]' main.py /data/*/*/*.cdv brittany",
+        # Expose the spark UI
+        ports = ["4040:4040"]
     )
 #+END_SRC
 
@@ -149,6 +155,7 @@ with play_on(roles=roles) as p:
 # TODO merge with build_tracks
 from enoslib.api import play_on, __default_python3__, __docker__
 from enoslib.infra.enos_g5k.provider import G5k
+from enoslib.infra.enos_g5k.g5k_api_utils import get_cluster_site
 from enoslib.infra.enos_g5k.configuration import Configuration, NetworkConfiguration
 
 import logging
@@ -156,6 +163,8 @@ import os
 
 logging.basicConfig(level=logging.INFO)
 
+CLUSTER = "paravance"
+SITE = get_cluster_site(CLUSTER)
 
 YEARS = [f"201{i}" for i in range(1, 9)]
 
@@ -164,7 +173,7 @@ network = NetworkConfiguration(
     id="n1",
     type="prod",
     roles=["my_network"],
-    site="rennes"
+    site=SITE
 )
 conf = (
     Configuration
@@ -174,7 +183,7 @@ conf = (
     .add_network_conf(network)
     .add_machine(
         roles=["control"],
-        cluster="paravance",
+        cluster=CLUSTER,
         nodes=len(YEARS),
         primary_network=network
     )
@@ -191,9 +200,87 @@ for host, year in zip(roles["control"], YEARS):
 
 with play_on(roles=roles) as p:
     # copy locally the source dir
-    target = "/srv/storage/sesame@storage1.rennes/sesame/generated/multitaskais"
+    target = "/srv/storage/sesame@storage1.rennes/sesame/generated/multitaskais/tracks"
     p.shell(f"mkdir -p {target}")
     p.shell("rsync -avz /tmp/result/{{ year }} %s" % target)
 #+END_SRC
 
-**** TODO Benchmark the alert function
+**** Benchmark the alert function
+
+     - OAR script to launch an instance of the benchmark
+
+      #+BEGIN_SRC bash :tangle alertstats.oar
+      #!/bin/bash
+      #OAR -n alertstats
+      #OAR -l nodes=1,walltime=9:00:0
+
+      echo $1
+      echo "-------------------"
+
+      cat $1
+
+      /grid5000/code/bin/g5k-setup-docker
+      SOURCE=/srv/storage/sesame@storage1.rennes
+      RESULT_DIR=/tmp/result
+
+      # touch this
+      ls $SOURCE
+
+      OUTPUT_DIR=/tmp/result docker run -v $SOURCE:$SOURCE -v $RESULT_DIR:/tmp/result registry.gitlab.inria.fr/sesame/platform/multitaskais_alertstats:1.0.14 $(cat $1)
+
+      mkdir -p result
+      ls /tmp
+      ls $RESULT_DIR
+      cp $RESULT_DIR/stats.csv result/$1.csv
+
+      echo "-------------------"
+      echo $1
+      echo "-------------------"
+
+      #+END_SRC
+
+    - Launch the above after splitting the tracks between different jobs
+
+      #+BEGIN_SRC bash :tangle launch_bench.sh
+      # Create the index file
+      find /srv/storage/sesame@storage1.rennes/sesame/generated/multitaskais/tracks/ -type f > index
+      # Split into different inputs
+      split -l 10000  /srv/storage/sesame@storage1.rennes/sesame/generated/multitaskais/tracks/index
+      ls x* > params
+      # Launch it
+      oarsub --array-param-file ./params  -S ./alertstats.oar
+      #+END_SRC
+
+**** TODO Analyse the output
+
+     
+      #+BEGIN_SRC python :results output
+import glob
+
+import matplotlib.pyplot as plt
+import pandas as pd
+
+
+# Assuming everything is under the result dir...
+ls = glob.iglob("result/*.csv")
+names = ["duration", "status", "length", "error" ]
+df = pd.read_csv(next(ls), names=names)
+for f in ls:
+    df = pd.concat([df, pd.read_csv(f, names=names)])
+# let's account only for non faulty tracks
+# those which aren't been filtered out by processAIS
+df = df[df.status == 0]
+
+print(df.describe())
+      #+END_SRC
+
+      #+RESULTS:
+      :            duration   status         length
+      : count  59814.000000  59814.0   59814.000000
+      : mean       2.551326      0.0     757.430769
+      : std        0.943114      0.0    3310.778195
+      : min        1.464212      0.0      20.000000
+      : 25%        1.764137      0.0     147.000000
+      : 50%        1.996318      0.0     321.000000
+      : 75%        3.555246      0.0     641.750000
+      : max        6.125387      0.0  215545.000000
