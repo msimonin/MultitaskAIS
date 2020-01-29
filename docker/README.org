@@ -289,5 +289,6 @@ return tabulate(df.describe(), headers="keys", tablefmt="orgtbl")
       | 75%   |  3.71707 |      0 |     666 |
       | max   |  6.12539 |      0 |  215545 |
 
-Reading: In average the alert function was able to handle approx one track every 2.94425s.
-In other word, a single instance of the ~stream~ operator can handle 0.3 track per second.
+Reading: In average the alert function was able to handle approx one track every
+2.94425s. In other word, a single instance of the ~stream~ operator should be
+able to detect handle 0.3 track per second.
