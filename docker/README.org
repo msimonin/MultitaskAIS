@@ -291,4 +291,4 @@ return tabulate(df.describe(), headers="keys", tablefmt="orgtbl")
 
 Reading: In average the alert function was able to handle approx one track every
 2.94425s. In other word, a single instance of the ~stream~ operator should be
-able to detect handle 0.3 track per second.
+able to handle 0.3 track per second.
