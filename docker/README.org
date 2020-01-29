@@ -254,7 +254,7 @@ with play_on(roles=roles) as p:
 **** TODO Analyse the output
 
      
-      #+BEGIN_SRC python :results output
+      #+BEGIN_SRC python :results raw
 import glob
 
 import matplotlib.pyplot as plt
@@ -272,19 +272,17 @@ for f in ls:
 # those which aren't been filtered out by processAIS
 df = df[df.status == 0]
 
-print(tabulate(df.describe(), headers="keys", tablefmt="orgtbl"))
+return tabulate(df.describe(), headers="keys", tablefmt="orgtbl")
       #+END_SRC
 
       #+RESULTS:
-      #+begin_example
-      |       |     duration |   status |    length |
-      |-------+--------------+----------+-----------|
-      | count | 87662        |    87662 |  87662    |
-      | mean  |     2.94425  |        0 |    766.06 |
-      | std   |     0.988305 |        0 |   3131.06 |
-      | min   |     1.46421  |        0 |     20    |
-      | 25%   |     1.84247  |        0 |    167    |
-      | 50%   |     3.48672  |        0 |    344    |
-      | 75%   |     3.71707  |        0 |    666    |
-      | max   |     6.12539  |        0 | 215545    |
-      #+end_example
+      |       | duration | status |  length |
+      |-------+----------+--------+---------|
+      | count |    87662 |  87662 |   87662 |
+      | mean  |  2.94425 |      0 |  766.06 |
+      | std   | 0.988305 |      0 | 3131.06 |
+      | min   |  1.46421 |      0 |      20 |
+      | 25%   |  1.84247 |      0 |     167 |
+      | 50%   |  3.48672 |      0 |     344 |
+      | 75%   |  3.71707 |      0 |     666 |
+      | max   |  6.12539 |      0 |  215545 |
