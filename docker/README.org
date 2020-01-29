@@ -1,7 +1,9 @@
 * MultitaskAIS online
 
-Goal: Evaluate how MultitaskAIS can be used to detect abnormal tracks in a
-      stream of messages
+- Goal: Evaluate how MultitaskAIS can be used to detect abnormal tracks in a
+        stream of messages. (the model is built /a priori/.)
+
+- Dataset: Britany dataset from 2011 to 2017.
 
 ** Runtimes
 
@@ -59,9 +61,9 @@ docker build --build-arg NAMESPACE=$NAMESPACE --build-arg TARGET_REF=$TARGET_REF
 docker build --build-arg NAMESPACE=$NAMESPACE --build-arg TARGET_REF=$TARGET_REF -f docker/tracks/Dockerfile . -t $NAMESPACE/multitaskais_tracks:$TARGET_REF
 #+END_SRC
 
-*** Evaluation
+** Evaluation
 
-**** Build all the tracks
+*** Build all the tracks
 
 For each year this creates all the tracks on a dedicated nodes. 
 Depending on the year it took approx 32 CPU x 6 hours. 
@@ -148,7 +150,7 @@ with play_on(roles=roles) as p:
     )
 #+END_SRC
 
-**** Save the tracks
+*** Save the tracks
 
 
 #+BEGIN_SRC python :tangle save_tracks.py
@@ -205,7 +207,7 @@ with play_on(roles=roles) as p:
     p.shell("rsync -avz /tmp/result/{{ year }} %s" % target)
 #+END_SRC
 
-**** Benchmark the alert function
+*** Benchmark the alert function
 
      - OAR script to launch an instance of the benchmark
 
@@ -251,7 +253,7 @@ with play_on(roles=roles) as p:
       oarsub --array-param-file ./params  -S ./alertstats.oar
       #+END_SRC
 
-**** TODO Analyse the output
+*** Analyse the output
 
      
       #+BEGIN_SRC python :results raw
@@ -286,3 +288,6 @@ return tabulate(df.describe(), headers="keys", tablefmt="orgtbl")
       | 50%   |  3.48672 |      0 |     344 |
       | 75%   |  3.71707 |      0 |     666 |
       | max   |  6.12539 |      0 |  215545 |
+
+Reading: In average the alert function was able to handle approx one track every 2.94425s.
+In other word, a single instance of the ~stream~ operator can handle 0.3 track per second.
