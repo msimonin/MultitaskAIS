@@ -254,9 +254,7 @@ with play_on(roles=roles) as p:
       #+END_SRC
 
 *** Analyse the output
-
-     
-      #+BEGIN_SRC python :results raw
+      #+BEGIN_SRC python :results raw :session plop
 import glob
 
 import matplotlib.pyplot as plt
@@ -266,27 +264,43 @@ from tabulate import tabulate
 
 # Assuming everything is under the result dir...
 ls = glob.iglob("result/*.csv")
-#names = ["duration", "status", "length", "error" ]
 df = pd.read_csv(next(ls))
 for f in ls:
-    df = pd.concat([df, pd.read_csv(f, header=0, index_col=0)])
-# let's account only for non faulty tracks
-# those which aren't been filtered out by processAIS
-df = df[df.status == 0] # NoneType err
-return(tabulate(df.describe(), headers="keys", tablefmt="orgtbl"))
+    df = pd.concat([df, pd.read_csv(f)])
+
+# Number of tracks
+table = [
+    ["Number of tracks", len(df)],
+    ["Number of abnormal tracks", len(df[df.normality == 'abnormal'])],
+    ["Faulty tracks", len(df[df.status == 1])]
+]
+tabulate(table, tablefmt="orgtbl")
       #+END_SRC
 
       #+RESULTS:
-      |       | duration |  length | status |
-      |-------+----------+---------+--------|
-      | count |    87662 |   87662 |  87662 |
-      | mean  |  2.08516 |  766.06 |      0 |
-      | std   | 0.689601 | 3131.06 |      0 |
-      | min   |  1.47651 |      20 |      0 |
-      | 25%   |  1.71951 |     167 |      0 |
-      | 50%   |  1.81782 |     344 |      0 |
-      | 75%   |  2.03061 |     666 |      0 |
-      | max   |  5.89581 |  215545 |      0 |
+      | Number of tracks          | 235046 |
+      | Number of abnormal tracks |   5958 |
+      | Faulty tracks             | 147384 |
+
+
+      #+BEGIN_SRC python :results raw :session plop
+# let's account only for non faulty tracks
+# those which aren't been filtered out by processAIS
+df_ok = df[df.status == 0] # NoneType err
+tabulate(df_ok.describe(), headers="keys", tablefmt="orgtbl")
+      #+END_SRC
+
+      #+RESULTS:
+      |       | duration | status |  length |
+      |-------+----------+--------+---------|
+      | count |    87662 |  87662 |   87662 |
+      | mean  |  2.08516 |      0 |  766.06 |
+      | std   | 0.689601 |      0 | 3131.06 |
+      | min   |  1.47651 |      0 |      20 |
+      | 25%   |  1.71951 |      0 |     167 |
+      | 50%   |  1.81782 |      0 |     344 |
+      | 75%   |  2.03061 |      0 |     666 |
+      | max   |  5.89581 |      0 |  215545 |
 
 Reading: In average the alert function was able to handle approx one track every
 2.08516s. In other word, a single instance of the ~stream~ operator should be
