@@ -274,10 +274,12 @@ table = [
     ["Number of abnormal tracks", len(df[df.normality == 'abnormal'])],
     ["Faulty tracks", len(df[df.status == 1])]
 ]
-tabulate(table, tablefmt="orgtbl")
+tabulate(table, headers=["", "count"], tablefmt="orgtbl")
       #+END_SRC
 
       #+RESULTS:
+      |                           |        |
+      |---------------------------+--------|
       | Number of tracks          | 235046 |
       | Number of abnormal tracks |   5958 |
       | Faulty tracks             | 147384 |
