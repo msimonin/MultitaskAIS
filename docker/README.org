@@ -266,29 +266,30 @@ from tabulate import tabulate
 
 # Assuming everything is under the result dir...
 ls = glob.iglob("result/*.csv")
-names = ["duration", "status", "length", "error" ]
-df = pd.read_csv(next(ls), names=names)
+#names = ["duration", "status", "length", "error" ]
+df = pd.read_csv(next(ls))
 for f in ls:
-    df = pd.concat([df, pd.read_csv(f, names=names)])
+    df = pd.concat([df, pd.read_csv(f, header=0, index_col=0)])
 # let's account only for non faulty tracks
 # those which aren't been filtered out by processAIS
-df = df[df.status == 0]
-
-return tabulate(df.describe(), headers="keys", tablefmt="orgtbl")
+df = df[df.status == 0] # NoneType err
+return(tabulate(df.describe(), headers="keys", tablefmt="orgtbl"))
       #+END_SRC
 
       #+RESULTS:
-      |       | duration | status |  length |
-      |-------+----------+--------+---------|
-      | count |    87662 |  87662 |   87662 |
-      | mean  |  2.94425 |      0 |  766.06 |
-      | std   | 0.988305 |      0 | 3131.06 |
-      | min   |  1.46421 |      0 |      20 |
-      | 25%   |  1.84247 |      0 |     167 |
-      | 50%   |  3.48672 |      0 |     344 |
-      | 75%   |  3.71707 |      0 |     666 |
-      | max   |  6.12539 |      0 |  215545 |
+      |       | duration |  length | status |
+      |-------+----------+---------+--------|
+      | count |    87662 |   87662 |  87662 |
+      | mean  |  2.08516 |  766.06 |      0 |
+      | std   | 0.689601 | 3131.06 |      0 |
+      | min   |  1.47651 |      20 |      0 |
+      | 25%   |  1.71951 |     167 |      0 |
+      | 50%   |  1.81782 |     344 |      0 |
+      | 75%   |  2.03061 |     666 |      0 |
+      | max   |  5.89581 |  215545 |      0 |
 
 Reading: In average the alert function was able to handle approx one track every
-2.94425s. In other word, a single instance of the ~stream~ operator should be
-able to handle 0.3 track per second.
+2.08516s. In other word, a single instance of the ~stream~ operator should be
+able to handle 0.5 track per second. Note that these results are CPU freq
+dependent. The observed variations weren't significant between different CPU
+velocity.

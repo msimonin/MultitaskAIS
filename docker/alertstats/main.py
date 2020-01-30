@@ -35,21 +35,37 @@ if __name__ == "__main__":
     args = parser.parse_args()
     track = []
     dest = pathlib.Path(args.output_dir, args.output_file)
+    keys = ["track", "normality", "duration","status", "length", "err", "file"]
     with open(dest, "w") as output:
+        output.write(",".join(keys))
+        output.write("\n")
         for f in args.files:
             status = 0
             err = None
+            track_name = pathlib.Path(f).name.split(".")[0]
+            result = ""
             try:
                 track = np.load(f)
                 start = time.time()
-                result = alert([track])
+                t = alert([track])
+                result = "normal"
+                if len(t) > 0:
+                    result = "abnormal"
             except Exception as e:
                 status = 1
                 err = e
             finally:
                 end = time.time()
                 delta = end - start
-            result = [str(delta), str(status), str(len(track)), err.__class__.__name__]
+            result = [
+                track_name,
+                result,
+                str(delta),
+                str(status),
+                str(len(track)),
+                err.__class__.__name__,
+                f
+            ]
             print(result)
             output.write(",".join(result))
             output.write("\n")
