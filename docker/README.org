@@ -7,12 +7,12 @@
 
 ** Runtimes
 
-Runtimes are available through some docker images: 
+Runtimes are available through some docker images:
 
-- ~base~ image: contains the multitaskAIS dependencies (using Conda) and the MultitaskAIS 
+- ~base~ image: contains the multitaskAIS dependencies (using Conda) and the MultitaskAIS
   source code.
 
-- ~stream~ image: contains the code of an operator detecting "abnormal" 
+- ~stream~ image: contains the code of an operator detecting "abnormal"
   tracks in an AIS messages. At runtime this assumes that AIS message are
   ingested through Kafka and available on a topic keyed by mmsi.
 
@@ -48,7 +48,7 @@ which docker
 ls /srv/storage/sesame@storage1.rennes
 #+END_SRC
 
-- Build the images 
+- Build the images
 #+BEGIN_SRC bash
 # Image build example
 export NAMESPACE=sesame
@@ -65,8 +65,8 @@ docker build --build-arg NAMESPACE=$NAMESPACE --build-arg TARGET_REF=$TARGET_REF
 
 *** Build all the tracks
 
-For each year this creates all the tracks on a dedicated nodes. 
-Depending on the year it took approx 32 CPU x 6 hours. 
+For each year this creates all the tracks on a dedicated nodes.
+Depending on the year it took approx 32 CPU x 6 hours.
 
 #+BEGIN_SRC python :tangle build_tracks.py
 from enoslib.api import play_on, __default_python3__, __docker__
@@ -233,7 +233,7 @@ with play_on(roles=roles) as p:
       mkdir -p result
       ls /tmp
       ls $RESULT_DIR
-      cp $RESULT_DIR/stats.csv result/$1.csv
+      cp -r $RESULT_DIR/* result/.
 
       echo "-------------------"
       echo $1
@@ -254,6 +254,7 @@ with play_on(roles=roles) as p:
       #+END_SRC
 
 *** Analyse the output
+**** Quantitave analyse
       #+BEGIN_SRC python :results raw :session plop
 import glob
 
@@ -278,10 +279,10 @@ tabulate(table, headers=["", "count"], tablefmt="orgtbl")
       #+END_SRC
 
       #+RESULTS:
-      |                           |        |
+      |                           |  count |
       |---------------------------+--------|
       | Number of tracks          | 235046 |
-      | Number of abnormal tracks |   5958 |
+      | Number of abnormal tracks |   5956 |
       | Faulty tracks             | 147384 |
 
 
@@ -296,16 +297,75 @@ tabulate(df_ok.describe(), headers="keys", tablefmt="orgtbl")
       |       | duration | status |  length |
       |-------+----------+--------+---------|
       | count |    87662 |  87662 |   87662 |
-      | mean  |  2.08516 |      0 |  766.06 |
-      | std   | 0.689601 |      0 | 3131.06 |
-      | min   |  1.47651 |      0 |      20 |
-      | 25%   |  1.71951 |      0 |     167 |
-      | 50%   |  1.81782 |      0 |     344 |
-      | 75%   |  2.03061 |      0 |     666 |
-      | max   |  5.89581 |      0 |  215545 |
+      | mean  |  1.84899 |      0 |  766.06 |
+      | std   | 0.177756 |      0 | 3131.06 |
+      | min   |  1.47882 |      0 |      20 |
+      | 25%   |  1.72778 |      0 |     167 |
+      | 50%   |  1.80047 |      0 |     344 |
+      | 75%   |   1.9386 |      0 |     666 |
+      | max   |  3.58434 |      0 |  215545 |
 
 Reading: In average the alert function was able to handle approx one track every
-2.08516s. In other word, a single instance of the ~stream~ operator should be
+1.84899s. In obether words, a single instance of the ~stream~ operator should be
 able to handle 0.5 track per second. Note that these results are CPU freq
 dependent. The observed variations weren't significant between different CPU
 velocity.
+
+**** TODO Qualitative analyse
+     
+     Note: only one model used.
+
+#+BEGIN_SRC python :tangle alertstats.py
+"""
+Input:
+    result/normal: directory containing the tracks deemed normal
+    result/abnormal: directory containing detected abnormal tracks
+
+Output:
+    result/figs: pdf representation of some normal tracks and abnormal tracks
+    (by chunks of 10 tracks)
+"""
+import matplotlib.pyplot as plt
+import numpy as np
+import glob
+import pathlib
+
+def draw():
+    """Draw all the EEZs. Visualize different simplifications."""
+    # dataframe to do some stats
+
+    def draw_some_normal():
+        l = glob.glob("result/normal/*.npy")
+        for ll in l[0:500]:
+            track = np.load(ll)
+            plt.plot(track[:,1], track[:,0], "b", alpha=0.25, linewidth=1)
+
+    fig_dir = pathlib.Path("result/figs")
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    draw_some_normal()
+
+    l = glob.glob("result/abnormal/*.npy")
+    n = 9
+    for i, ll in enumerate(l):
+        idx = i % n
+        track = np.load(ll)
+        plt.plot(track[:,1],
+                 track[:,0],
+                 color=plt.cm.YlOrRd(float(idx)/n),
+                 linewidth=1,
+                 label=int(track[0,8]))
+        if i > 0 and i % n == 0:
+            plt.legend(loc="upper left", fontsize="xx-small")
+            fig_file = pathlib.Path(fig_dir, f"{i}.pdf")
+            plt.savefig(fig_file)
+            plt.clf()
+            draw_some_normal()
+
+draw()
+#+END_SRC
+
+- One example of output out of 500:
+
+[[file:result/figs/9.pdf]]
+
+

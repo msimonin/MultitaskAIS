@@ -15,6 +15,10 @@ OUTPUT_DIR = "/tmp/result"
 OUTPUT_FILE = "stats.csv"
 
 if __name__ == "__main__":
+    def create_result_dir(dir):
+        dir = pathlib.Path(args.output_dir, dir)
+        dir.mkdir(parents=True, exist_ok=True)
+        return dir
 
     parser = argparse.ArgumentParser(description="Benchmark alert function")
     parser.add_argument('files', metavar='TRACK', type=str, nargs='+',
@@ -25,8 +29,6 @@ if __name__ == "__main__":
     parser.add_argument('--output_file', '-f', type=str,
                         help="Output file",
                         default=cli_utils.lookup_env("OUTPUT_FILE", OUTPUT_FILE))
-
-
     args = parser.parse_args()
     print(args)
 
@@ -34,9 +36,12 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     track = []
-    dest = pathlib.Path(args.output_dir, args.output_file)
+    stats = pathlib.Path(args.output_dir, args.output_file)
+    normal_dir = create_result_dir("normal")
+    abnormal_dir = create_result_dir("abnormal")
+    faulty_dir = create_result_dir("faulty")
     keys = ["track", "normality", "duration","status", "length", "err", "file"]
-    with open(dest, "w") as output:
+    with open(stats, "w") as output:
         output.write(",".join(keys))
         output.write("\n")
         for f in args.files:
@@ -44,19 +49,25 @@ if __name__ == "__main__":
             err = None
             track_name = pathlib.Path(f).name.split(".")[0]
             result = ""
+            start = time.time()
+            track = np.load(f)
             try:
-                track = np.load(f)
-                start = time.time()
                 t = alert([track])
                 result = "normal"
+                track_dir = normal_dir
                 if len(t) > 0:
                     result = "abnormal"
+                    track_dir = abnormal_dir
             except Exception as e:
                 status = 1
                 err = e
+                track_dir = faulty_dir
             finally:
                 end = time.time()
                 delta = end - start
+                track_file = pathlib.Path(track_dir, f"{track_name}.npy")
+                np.save(track_file, track)
+
             result = [
                 track_name,
                 result,
