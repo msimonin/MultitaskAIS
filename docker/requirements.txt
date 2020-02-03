@@ -1,0 +1,4 @@
+enoslib >= 4.11.0
+sesamelib
+# ubuntu18.04
+pygdal==2.2.3.3

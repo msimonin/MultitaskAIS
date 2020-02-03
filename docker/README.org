@@ -22,7 +22,7 @@ Runtimes are available through some docker images:
 
 - ~alertstats~ image: contains the code that benchmark the ~alert~ function 
   (/a contrario/ anomaly detection).
-
+  
 *** Build
 
 To build the images you need to set the ~NAMESPACE~ and ~TARGET_REF~
@@ -71,10 +71,11 @@ For each year this creates all the tracks on a dedicated nodes.
 Depending on the year it took approx 32 CPU x 6 hours.
 
 #+BEGIN_SRC python :tangle build_tracks.py
-from enoslib.api import play_on, __default_python3__, __docker__
+from enoslib.api import play_on
 from enoslib.infra.enos_g5k.provider import G5k
 from enoslib.infra.enos_g5k.g5k_api_utils import get_cluster_site
 from enoslib.infra.enos_g5k.configuration import Configuration, NetworkConfiguration
+from enoslib.service import Docker
 
 import logging
 import os
@@ -113,21 +114,10 @@ provider = G5k(conf)
 roles, _ = provider.init()
 print(roles)
 
-with play_on(roles=roles, priors=[__default_python3__, __docker__]) as p:
-    p.lineinfile(
-        path="/lib/systemd/system/docker.service",
-        regexp="ExecStart=/usr/bin/dockerd (.*)",
-        # NOTE: Yaml requires escaping backslashes in double quotes but not in single quotes
-        line="ExecStart=/usr/bin/dockerd --data-root=/tmp/docker \\1",
-        backrefs="yes"
-    )
-    p.systemd(
-        name="docker",
-        state="restarted",
-        daemon_reload="yes"
-    )
-    p.apt(name="python3-pip", state="present")
-    p.pip(name="docker", state="present")
+d = Docker(agent=roles["control"], bind_var_docker="/tmp/docker")
+d.deploy()
+
+with play_on(roles=roles) as p:
     p.shell("ls /srv/storage/sesame@storage1.rennes")
 
 for host, year in zip(roles["control"], YEARS):
