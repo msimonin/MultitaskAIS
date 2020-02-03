@@ -20,6 +20,8 @@ Runtimes are available through some docker images:
   This works offline with an already known set of messages. Those tracks can be
   used as input to benchmark the detection function.
 
+- ~alertstats~ image: contains the code that benchmark the ~alert~ function 
+  (/a contrario/ anomaly detection).
 
 *** Build
 
