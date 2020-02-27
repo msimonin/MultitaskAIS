@@ -84,9 +84,11 @@ def dumpFiles(output_dir, mmsi_track):
 
     Side effect ahead!"""
     mmsi, track = mmsi_track
-    path = os.path.join(output_dir, "%s.txt" % mmsi)
     if track.length() > 0:
-       np.save(path, track.to_numpy())
+        first = int(track.points()[0].tagblock_timestamp)
+        last = int(track.points()[-1].tagblock_timestamp)
+        path = os.path.join(output_dir, "%d-%d-%s.txt" % (first, last, mmsi))
+        np.save(path, track.to_numpy())
     return mmsi_track
 
 if __name__ == "__main__":

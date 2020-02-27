@@ -40,7 +40,15 @@ if __name__ == "__main__":
     normal_dir = create_result_dir("normal")
     abnormal_dir = create_result_dir("abnormal")
     faulty_dir = create_result_dir("faulty")
-    keys = ["track", "normality", "duration","status", "length", "err", "file"]
+    keys = ["track",
+            "normality",
+            "duration",
+            "status",
+            "length",
+            "start",
+            "end",
+            "err",
+            "file"]
     with open(stats, "w") as output:
         output.write(",".join(keys))
         output.write("\n")
@@ -67,13 +75,19 @@ if __name__ == "__main__":
                 delta = end - start
                 track_file = pathlib.Path(track_dir, f"{track_name}.npy")
                 np.save(track_file, track)
-
+            # file format is something like
+            # <start>-<end>-<mmsi>-<track_index>
+            splitted_name = track_name.split("-")
+            start = splitted_name[0]
+            end = splitted_name[1]
             result = [
                 track_name,
                 result,
                 str(delta),
                 str(status),
                 str(len(track)),
+                str(start),
+                str(end),
                 err.__class__.__name__,
                 f
             ]
