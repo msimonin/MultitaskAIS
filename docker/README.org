@@ -414,7 +414,9 @@ velocity.
     Output:
         result/figs: pdf representation of some normal tracks and abnormal tracks
         (by chunks of 10 tracks)
+        Tracks on a plot belong to the same month (almost true)
     """
+    import datetime
     import matplotlib.pyplot as plt
     import numpy as np
     import glob
@@ -435,27 +437,37 @@ velocity.
         draw_some_normal()
 
         l = glob.glob("result/abnormal/*.npy")
+        l = sorted(list(l))
         n = 9
         for i, ll in enumerate(l):
             idx = i % n
             track = np.load(ll)
+            track_name = pathlib.Path(ll).name
+            start_time = track_name.split("-")[0]
+            date = datetime.datetime.fromtimestamp(int(start_time))
+            day = date.strftime("%Y-%m-%d")
             plt.plot(track[:,1],
-                     track[:,0],
-                     color=plt.cm.YlOrRd(float(idx)/n),
-                     linewidth=1,
-                     label=int(track[0,8]))
+                    track[:,0],
+                    color=plt.cm.YlOrRd(float(idx)/n),
+                    linewidth=1,
+                    label=f"{int(track[0,n-1])}-{day}", 
+                    )
             if i > 0 and i % n == 0:
+                month = date.strftime("%Y-%m")
                 plt.legend(loc="upper left", fontsize="xx-small")
-                fig_file = pathlib.Path(fig_dir, f"{i}.pdf")
+                fig_file = pathlib.Path(fig_dir, f"{month}__{i}.pdf")
+                plt.title(f"{month}__{i}")
+                print(f"Plotting {month}__{i}")
                 plt.savefig(fig_file)
                 plt.clf()
                 draw_some_normal()
 
     draw()
-    #+END_SRC
+
+        #+END_SRC
 
     - One example of output out of 500:
 
-    [[file:result/figs/9.pdf]]
+    [[file:result/figs/2011-07__9.pdf]]
 
 
