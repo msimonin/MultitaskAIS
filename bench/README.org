@@ -1,0 +1,130 @@
+* Benchmarks
+- Goal: Evaluate the ~alert~ function which test the "normality" of a track.
+
+- Inputs:
+  + All the tracks built from the Brittany dataset from 2011 to 2017.
+    A runtime to build them is given in the ~docker/~ subdirectory.
+  + A pre trained model
+
+*** Benchmark the alert function
+
+    Note that we ran this benchmark on Grid'5000. Dell PowerEdge C6220 II were
+    used (~paranoia~ cluster) [20 cores with 128GiB RAM each]. We partition the
+    set of tracks to parallelize the benchmark. A job takes as input the set of
+    tracks to test and output all the execution time of the alert function on
+    each track and some metadata (e.g length of the track, timespan of the
+    track).
+
+**** Technical details
+
+    - outputs are stored in the ~alertstats.output~ (logs and csv
+      files) subdirectory.
+    - inputs is taken from the ~alertstats.input~ directory.
+
+    The job definition is:
+    #+BEGIN_SRC bash :tangle alertstats.oar
+    #!/bin/bash
+    #OAR -n alertstats
+    #OAR -O alertstats.output/logs/OAR.%jobid%.stdout
+    #OAR -E alertstats.output/logs/OAR.%jobid%.stderr
+    #OAR -l core=1,walltime=12:08:00
+    #OAR -p cluster='paranoia'
+
+    ls /srv/storage/sesame@storage1.rennes/
+
+    source ~/miniconda3/etc/profile.d/conda.sh
+    conda activate SESAME_PY3CPU
+
+    # some path are hardcoded in the multitaskais project
+    # let's move to a reasonable place
+
+    cd ..
+
+    # run the alert function on all files and record the statistics
+    export OUTPUT_DIR=./bench/alertstats.output
+    export OUTPUT_FILE=$(basename $1).csv
+    export PYTHONUNBUFFERED=1
+    python alertstats.py $(cat $1)
+    #+END_SRC
+
+    This is initialize with the following which creates the directory structure
+    and the partition of the set of tracks.
+
+    #+BEGIN_SRC bash :tangle init.sh
+    #!/usr/bin/env bash
+
+    # Some initialisations for g5k
+
+    mkdir -p alertstats.input
+
+    pushd alertstats.input
+    # list of all tracks
+    find /srv/storage/sesame@storage1.rennes/sesame/generated/multitaskais/tracks/ -type f > index
+    # let's split the list of tracks
+    split -l 5000 index
+    # let's generate the param files that will be passed to oar
+    rm params; for i in $(ls x*); do echo $(pwd)/$i>> params; done
+    popd
+
+    # create the output directory and the logs directory
+    mkdir -p alertstats.output/logs
+    #+END_SRC
+
+    The launcher is the following:
+    #+BEGIN_SRC bash
+    oarsub --array-param-file ./alertstats.input/params  -S ./alertstats.oar
+    #+END_SRC
+
+*** Statistics
+    #+BEGIN_SRC python :results raw :session plop
+import glob
+
+import pandas as pd
+from tabulate import tabulate
+
+
+# Assuming everything is under the result dir...
+ls = glob.iglob("alertstats.output/*.csv")
+df = pd.read_csv(next(ls))
+for f in ls:
+    df = pd.concat([df, pd.read_csv(f)])
+
+# Number of tracks
+table = [
+    ["Number of tracks", len(df)],
+    ["Number of abnormal tracks", len(df[df.normality == 'abnormal'])],
+    ["Faulty tracks", len(df[df.status == 1])]
+]
+tabulate(table, headers=["", "count"], tablefmt="orgtbl")
+    #+END_SRC
+
+    #+RESULTS:
+    |                           |  count |
+    |---------------------------+--------|
+    | Number of tracks          | 237863 |
+    | Number of abnormal tracks |   5764 |
+    | Faulty tracks             | 147786 |
+
+
+    #+BEGIN_SRC python :results raw :session plop
+# let's account only for non faulty tracks
+# those which aren't been filtered out by processAIS
+df_ok = df[df.status == 0] # NoneType err
+tabulate(df_ok.loc[:, ["duration", "length"]].describe(), headers="keys", tablefmt="orgtbl")
+    #+END_SRC
+
+    #+RESULTS:
+    |       | duration |  length |
+    |-------+----------+---------|
+    | count |    90077 |   90077 |
+    | mean  |  2.07906 | 751.725 |
+    | std   |  0.22249 | 2930.02 |
+    | min   |  1.49136 |      20 |
+    | 25%   |  1.93709 |     166 |
+    | 50%   |  2.04686 |     348 |
+    | 75%   |   2.1962 |     677 |
+    | max   |  3.74857 |  184408 |
+
+    Reading: In average the alert function was able to handle approx one track
+    every 2s . In other words, a single instance of the ~stream~ operator should
+    be able to handle 0.5 track per second per CPU core.

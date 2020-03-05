@@ -20,9 +20,9 @@ Runtimes are available through some docker images:
   This works offline with an already known set of messages. Those tracks can be
   used as input to benchmark the detection function.
 
-- ~alertstats~ image: contains the code that benchmark the ~alert~ function 
+- ~alertstats~ image: contains the code that benchmark the ~alert~ function
   (/a contrario/ anomaly detection).
-  
+
 *** Build
 
 To build the images you need to set the ~NAMESPACE~ and ~TARGET_REF~
@@ -201,6 +201,16 @@ with play_on(roles=roles) as p:
 
 *** Benchmark the alert function
 
+    NOTE1: we benchmark here using docker and a full node (all the core
+           available)
+    NOTE2: to limit the number of resources available (1 CPU core for instance),
+           it's better to use to native OAR mecanism. Though it's possible with
+           docker to limit the number of available cores. One can pin to a
+           specific core `cpuset-cpus=1` option. Limiting with `cpus=1` is also
+           possible but tensorflow (inside docker) will still see all the
+           available cores. You'll need to pass ~OMP_NUM_THREADS=1~ to force a
+           parallelism of 1 for tensorflow.
+
      - OAR script to launch an instance of the benchmark
 
       #+BEGIN_SRC bash :tangle alertstats.oar
@@ -303,10 +313,8 @@ able to handle 0.5 track per second. Note that these results are CPU freq
 dependent. The observed variations weren't significant between different CPU
 velocity.
 
-
-
 **** TODO Qualitative analyse
-     
+
      Note: only one model used.
 
 ***** Break down per month of normal/abnormal tracks.
@@ -319,7 +327,7 @@ velocity.
     df_count_by_month = df[df.status == 0 ].groupby(["year_start","month_start", "normality"])["track"].count()
     tabulate(df_count_by_month.unstack(), headers="keys", tablefmt="orgtbl")
           #+END_SRC
-      
+
           #+RESULTS:
           |            | abnormal | normal |
           |------------+----------+--------|
@@ -450,7 +458,7 @@ velocity.
                     track[:,0],
                     color=plt.cm.YlOrRd(float(idx)/n),
                     linewidth=1,
-                    label=f"{int(track[0,n-1])}-{day}", 
+                    label=f"{int(track[0,n-1])}-{day}",
                     )
             if i > 0 and i % n == 0:
                 month = date.strftime("%Y-%m")
@@ -469,5 +477,3 @@ velocity.
     - One example of output out of 500:
 
     [[file:result/figs/2011-07__9.pdf]]
-
-
