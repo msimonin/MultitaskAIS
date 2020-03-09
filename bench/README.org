@@ -128,3 +128,135 @@ tabulate(df_ok.loc[:, ["duration", "length"]].describe(), headers="keys", tablef
     Reading: In average the alert function was able to handle approx one track
     every 2s . In other words, a single instance of the ~stream~ operator should
     be able to handle 0.5 track per second per CPU core.
+
+*** How often we'll need to call the alert function
+    
+    The processing step implies that subsequent messages will be taken into
+    account if separated by at least 10 minutes. In this situation, for a given
+    track (i.e. for a given mmsi), the alert function can't be triggered more
+    than once every 10 minutes. As a consequence knowing how many mesages with
+    unique mmsi are received in this time windows gives us a worst case scenario
+    where every mesage received triggers the alert function.
+
+**** Technical details
+    - outputs are stored in the ~count_uniq_mmsi.output~ (logs and csv
+      files) subdirectory.
+    - inputs is taken from the ~count_uniq_mmsi.input~ directory.
+
+    The job definition is (this requires a spark environment):
+    #+BEGIN_SRC bash :tangle count_uniq_mmsi.oar
+#!/bin/bash -l
+#OAR -n count_uniq_mmsi
+#OAR -O count_uniq_mmsi.output/logs/OAR.%jobid%.stdout
+#OAR -E count_uniq_mmsi.output/logs/OAR.%jobid%.stderr
+#OAR -l nodes=1,walltime=5:00:00
+#OAR -p cluster='paravance'
+
+ls /srv/storage/sesame@storage1.rennes/
+
+source ~/miniconda3/etc/profile.d/conda.sh
+conda env list
+conda activate spark
+conda env export
+env
+python -c "import sys; print(sys.path)"
+
+
+# run the alert function on all files and record the statistics
+export PYTHONUNBUFFERED=1
+
+OUTPUT_DIR=./count_uniq_mmsi.output 
+spark-submit --master local[32] count_uniq_mmsi.py $1 $OUTPUT_DIR
+    #+END_SRC
+
+    
+The spark function is as follows:
+#+BEGIN_SRC python :tangle count_uniq_mmsi.py
+from __future__ import print_function
+
+import sys
+from random import random
+from operator import add
+
+import pickle
+from pyspark.sql import SparkSession
+
+import sesamelib.ais_utils as ais_utils
+
+from datetime import datetime
+
+PREFIX="/srv/storage/sesame@storage1.rennes/sesame/ais_britany/raw"
+
+def decode(e):
+    """Decode the message according the the ais_type."""
+    m = ais_utils.decode(e, ais_type="brittany")
+    base = datetime.fromtimestamp(0) # first date ever 01/01/1970
+    if m is not None:
+        base = datetime.fromtimestamp(m.get("tagblock_timestamp", 0))
+    # the day is our granularity
+    result = datetime(year=base.year,
+                      month=base.month,
+                      day=base.day,
+                      hour=base.hour,
+                      minute=10*int(base.minute/10))
+    if m is None:
+        return result, None
+    return result, m.get("mmsi") 
+
+def length(d_mmsi):
+    d, mmsi = d_mmsi
+    return datetime.timestamp(d), len(set(mmsi))
+
+if __name__ == "__main__":
+    spark = SparkSession\
+        .builder\
+        .appName("count")\
+        .getOrCreate()
+    sc = spark.sparkContext
+    year = sys.argv[1]
+    output_dir = sys.argv[2]
+
+    rdd_ais = sc.textFile(f"{PREFIX}/{year}/*/*/*.cdv")
+    result = rdd_ais.map(decode).groupByKey().map(length).collect()
+    with open(f"{output_dir}/{year}.ais", "wb") as f:
+        pickle.dump(result, f)
+    spark.stop()
+
+#+END_SRC
+
+    The launcher is the following (params is the list of year to consider):
+    #+BEGIN_SRC bash
+oarsub --array-param-file ./count_by_mmsi.input/params  -S ./count_by_mmsi.oar
+    #+END_SRC
+
+    #+RESULTS:
+
+**** Statistics
+
+     This builds the CDF of the number of unique mmsi received in a 10 minutes time window.
+    #+BEGIN_SRC python :results output
+import glob
+import pickle
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+
+ls = glob.iglob("count_uniq_mmsi.output/*.ais")
+# hold the result per year
+years = []
+for i in ls:
+    with open(i, "rb") as f:
+        years.append(sorted(pickle.load(f)))
+all_sorted = np.asarray(sorted([[r[0], r[1]] for year in years for r in year if r[0] > 0]))
+df  = pd.DataFrame(all_sorted[:,1], index=all_sorted[:,0])
+
+sns.set_style("whitegrid")
+kwargs = {'cumulative': True}
+sns.distplot(df, hist_kws=kwargs, kde_kws=kwargs)
+plt.xlabel("Number of unique mmsi (10 minutes time window)")
+plt.ylabel("Percentage")
+plt.savefig("count_uniq_mmsi.output/uniq_mmsi.pdf")
+    #+END_SRC
