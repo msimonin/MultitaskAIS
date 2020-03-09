@@ -231,10 +231,11 @@ oarsub --array-param-file ./count_by_mmsi.input/params  -S ./count_by_mmsi.oar
 
     #+RESULTS:
 
-**** Statistics
+**** TODO Statistics
 
      This builds the CDF of the number of unique mmsi received in a 10 minutes time window.
-    #+BEGIN_SRC python :results output
+    #+BEGIN_SRC python :results raw
+
 import glob
 import pickle
 
@@ -242,6 +243,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from tabulate import tabulate
+import datetime as dt
 
 
 ls = glob.iglob("count_uniq_mmsi.output/*.ais")
@@ -251,8 +254,7 @@ for i in ls:
     with open(i, "rb") as f:
         years.append(sorted(pickle.load(f)))
 all_sorted = np.asarray(sorted([[r[0], r[1]] for year in years for r in year if r[0] > 0]))
-df  = pd.DataFrame(all_sorted[:,1], index=all_sorted[:,0])
-
+df  = pd.DataFrame(all_sorted[:,1], index=all_sorted[:,0], columns=["mmsi"])
 sns.set_style("whitegrid")
 kwargs = {'cumulative': True}
 sns.distplot(df, hist_kws=kwargs, kde_kws=kwargs)
@@ -260,3 +262,7 @@ plt.xlabel("Number of unique mmsi (10 minutes time window)")
 plt.ylabel("Percentage")
 plt.savefig("count_uniq_mmsi.output/uniq_mmsi.pdf")
     #+END_SRC
+
+    #+RESULTS:
+    None
+    None
